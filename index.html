@@ -1,0 +1,1070 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tenant Submeter Records Ledger</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body class="bg-gray-50 text-gray-800 min-h-screen">
+
+    <div class="container mx-auto p-4 max-w-6xl">
+        <header class="bg-indigo-700 text-white p-6 rounded-xl shadow-md mb-6 flex justify-between items-center flex-wrap gap-4">
+            <div>
+                <h1 class="text-2xl font-bold">⚡ Tenant Submeter Records Ledger (High-Capacity DB)</h1>
+                <p class="text-sm opacity-90">Organized folders with auto-carrying previous readings and expanded photo storage.</p>
+            </div>
+            <div class="flex gap-2 flex-wrap">
+                <button onclick="exportBackup()" class="bg-indigo-900 hover:bg-black/30 px-4 py-2 rounded text-sm font-semibold transition">Export Backup</button>
+                <label class="bg-indigo-900 hover:bg-black/30 px-4 py-2 rounded text-sm font-semibold cursor-pointer transition">
+                    Import Backup
+                    <input type="file" id="importFile" class="hidden" onchange="importBackup(event)" accept=".json">
+                </label>
+                <button onclick="wipeData()" class="bg-red-500 hover:bg-red-600 px-4 py-2 rounded text-sm font-semibold transition">Wipe System</button>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="lg:col-span-1 space-y-6">
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                    <h2 class="text-lg font-bold mb-3 text-indigo-700">1. Setup Tenant/Unit Folder</h2>
+                    <form id="tenantForm" onsubmit="createTenant(event)" class="space-y-3">
+                        <div>
+                            <label class="block text-xs font-medium text-gray-500">Tenant Name / Unit Designation</label>
+                            <input type="text" id="newTenantName" required placeholder="e.g., Unit 1 - Gary" class="mt-1 block w-full p-2 border border-gray-300 rounded-md text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-gray-500">Submeter ID Number</label>
+                            <input type="text" id="newSubmeterNo" required placeholder="e.g., SUB-00912" class="mt-1 block w-full p-2 border border-gray-300 rounded-md text-sm">
+                        </div>
+                        <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-md font-semibold text-sm transition">Create Folder</button>
+                    </form>
+                </div>
+
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                    <h2 class="text-lg font-bold mb-1 text-indigo-700">2. Log New Monthly Reading</h2>
+                    <p class="text-xs text-gray-400 mb-3">Select a tenant folder on the right to auto-load previous readings.</p>
+                    
+                    <form id="billingForm" onsubmit="saveBillEntry(event)" class="space-y-3">
+                        <div>
+                            <label class="block text-xs font-medium text-gray-500">Active Tenant Folder</label>
+                            <select id="billTenantId" required onchange="onTenantSelectionChange()" class="mt-1 block w-full p-2 border border-gray-300 rounded-md text-sm bg-gray-50 font-semibold">
+                                <option value="">-- Choose a Tenant Folder --</option>
+                            </select>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-xs font-medium text-gray-500">Period From</label>
+                                <input type="date" id="dateFrom" required class="mt-1 block w-full p-1.5 border border-gray-300 rounded-md text-xs">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-500">Period To</label>
+                                <input type="date" id="dateTo" required class="mt-1 block w-full p-1.5 border border-gray-300 rounded-md text-xs">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-xs font-medium text-gray-500">Prev. Reading (kWh)</label>
+                                <input type="number" step="0.01" id="prevReading" required oninput="calculateKwh()" class="mt-1 block w-full p-2 border border-gray-300 rounded-md text-sm bg-gray-100" readonly>
+                                <span class="text-[10px] text-gray-400">Locked to last reading</span>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-500">Curr. Reading (kWh)</label>
+                                <input type="number" step="0.01" id="currReading" required oninput="calculateKwh()" class="mt-1 block w-full p-2 border border-gray-300 rounded-md text-sm">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-xs font-medium text-indigo-600 font-semibold">KWh Consumed</label>
+                                <input type="number" id="kwhConsumed" readonly class="mt-1 block w-full p-2 border rounded-md bg-gray-100 font-bold text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-500">Rate from Aleco (Php)</label>
+                                <input type="number" step="0.0001" id="ratePerKwh" required oninput="calculateKwh()" value="11.65" class="mt-1 block w-full p-2 border border-gray-300 rounded-md text-sm">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-xs font-medium text-gray-500">Transmission Fee (Php)</label>
+                                <input type="number" step="0.0001" id="transmissionFee" oninput="calculateKwh()" value="0.35" class="mt-1 block w-full p-2 border border-gray-300 rounded-md text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-500 font-bold text-indigo-700">Rate Applied (Php)</label>
+                                <input type="text" id="rateAppliedDisplay" readonly class="mt-1 block w-full p-2 border border-indigo-200 rounded-md bg-indigo-50 font-bold text-sm text-indigo-700">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-xs font-medium text-gray-500">Arrears / Prev. Balance (Php)</label>
+                                <input type="number" step="0.01" id="arrearsBalance" oninput="calculateKwh()" value="0.00" class="mt-1 block w-full p-2 border border-gray-300 rounded-md text-sm">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-[10px] font-medium text-gray-500">Current Subtotal (Php)</label>
+                                <input type="text" id="subtotalAmount" readonly class="mt-1 block w-full p-2 border rounded-md bg-gray-100 text-sm font-semibold">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-green-600 font-semibold">Total Amount Due (Php)</label>
+                                <input type="text" id="totalAmount" readonly class="mt-1 block w-full p-2 border border-green-200 rounded-md bg-green-50 font-bold text-green-700 text-base">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-gray-500">Notes / Reminders</label>
+                            <textarea id="billingNotes" rows="2" placeholder="Write any reminders here..." class="mt-1 block w-full p-2 border border-gray-300 rounded-md text-xs"></textarea>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-gray-500">Upload Meter Screenshot</label>
+                            <input type="file" id="meterPhoto" accept="image/*" class="mt-1 block w-full text-xs text-gray-500 file:mr-4 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100">
+                            <div id="photoPreviewContainer" class="mt-2 hidden">
+                                <img id="photoPreview" src="" class="max-h-24 rounded border mx-auto">
+                            </div>
+                        </div>
+                        <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white py-2.5 rounded-md font-semibold text-sm transition">Record Monthly Reading</button>
+                    </form>
+                </div>
+            </div>
+
+            <div class="lg:col-span-2 space-y-6">
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center flex-wrap gap-2">
+                    <span class="text-sm font-bold text-gray-700">Database Tools:</span>
+                    <div class="flex gap-2">
+                        <button onclick="generateGeneralRecordsPDF()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-xs font-semibold shadow transition">
+                            📄 Generate General Records Sequence (PDF)
+                        </button>
+                        <button onclick="generateGeneralRecordsExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-xs font-semibold shadow transition">
+                            📊 Generate General Ledger (Excel)
+                        </button>
+                    </div>
+                </div>
+
+                <div class="space-y-4" id="tenantFoldersContainer">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Setup IndexedDB (Handles virtually unlimited storage space)
+        let db;
+        const dbName = "SubmeterLedgerDB";
+        const dbVersion = 1;
+        let tenants = [];
+        let currentPhotoBase64 = "";
+        let dbInitialLoadDone = false; // guards against the async initial DB read overwriting a later import
+
+        // Raw numbers preserved for calculations
+        let rawRateApplied = 0;
+        let rawSubtotal = 0;
+        let rawTotalAmount = 0;
+
+        // Elements
+        const tenantForm = document.getElementById('tenantForm');
+        const billingForm = document.getElementById('billingForm');
+        const newTenantName = document.getElementById('newTenantName');
+        const newSubmeterNo = document.getElementById('newSubmeterNo');
+        const billTenantId = document.getElementById('billTenantId');
+        const dateFromInput = document.getElementById('dateFrom');
+        const dateToInput = document.getElementById('dateTo');
+        const prevReadingInput = document.getElementById('prevReading');
+        const currReadingInput = document.getElementById('currReading');
+        const kwhConsumedInput = document.getElementById('kwhConsumed');
+        const ratePerKwhInput = document.getElementById('ratePerKwh');
+        const transmissionFeeInput = document.getElementById('transmissionFee');
+        const rateAppliedDisplay = document.getElementById('rateAppliedDisplay');
+        const arrearsBalanceInput = document.getElementById('arrearsBalance');
+        const subtotalAmountInput = document.getElementById('subtotalAmount');
+        const totalAmountInput = document.getElementById('totalAmount');
+        const billingNotesInput = document.getElementById('billingNotes');
+        const meterPhotoInput = document.getElementById('meterPhoto');
+        const photoPreview = document.getElementById('photoPreview');
+        const photoPreviewContainer = document.getElementById('photoPreviewContainer');
+
+        // Helper function to format currency with peso sign and thousand separator commas
+        function formatPHP(amount) {
+            return "Php " + (amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+
+        // Initialize IndexedDB Engine
+        const request = indexedDB.open(dbName, dbVersion);
+        request.onupgradeneeded = function(e) {
+            const database = e.target.result;
+            if (!database.objectStoreNames.contains("tenantsStore")) {
+                database.createObjectStore("tenantsStore", { keyPath: "key" });
+            }
+        };
+
+        request.onsuccess = function(e) {
+            db = e.target.result;
+            loadDataFromDB();
+        };
+
+        request.onerror = function() {
+            console.warn("IndexedDB failed to load. Operating in LocalStorage fallback mode.");
+            loadDataFromDB();
+        };
+
+        // DB Actions: Load with double fallback safety net
+        function loadDataFromDB() {
+            if (!db) {
+                loadFromLocalStorage();
+                dbInitialLoadDone = true;
+                renderAll();
+                return;
+            }
+
+            try {
+                const transaction = db.transaction(["tenantsStore"], "readonly");
+                const store = transaction.objectStore("tenantsStore");
+                const getReq = store.get("ledgerData");
+                
+                getReq.onsuccess = function() {
+                    // If an import already completed while this read was pending, don't clobber it
+                    if (dbInitialLoadDone) return;
+                    if (getReq.result && getReq.result.value) {
+                        tenants = getReq.result.value;
+                    } else {
+                        loadFromLocalStorage();
+                    }
+                    dbInitialLoadDone = true;
+                    renderAll();
+                };
+                getReq.onerror = function() {
+                    if (dbInitialLoadDone) return;
+                    loadFromLocalStorage();
+                    dbInitialLoadDone = true;
+                    renderAll();
+                };
+            } catch (e) {
+                loadFromLocalStorage();
+                dbInitialLoadDone = true;
+                renderAll();
+            }
+        }
+
+        function loadFromLocalStorage() {
+            const legacyData = localStorage.getItem('tenantLedger');
+            if (legacyData) {
+                try {
+                    tenants = JSON.parse(legacyData);
+                } catch(e) {
+                    console.error("Failed to parse fallback LocalStorage data", e);
+                }
+            }
+        }
+
+        // DB Actions: Write synchronously to LocalStorage + Async IndexedDB
+        function saveData() {
+            // Save to LocalStorage immediately as a synchronous safety net
+            try {
+                localStorage.setItem('tenantLedger', JSON.stringify(tenants));
+            } catch(e) {
+                console.error("LocalStorage write error:", e);
+            }
+
+            if (!db) return;
+
+            try {
+                const transaction = db.transaction(["tenantsStore"], "readwrite");
+                const store = transaction.objectStore("tenantsStore");
+                store.put({ key: "ledgerData", value: tenants });
+            } catch(err) {
+                console.error("IndexedDB write error:", err);
+            }
+        }
+
+        // Capture photo and convert to Base64
+        meterPhotoInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    currentPhotoBase64 = event.target.result;
+                    photoPreview.src = currentPhotoBase64;
+                    photoPreviewContainer.classList.remove('hidden');
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // 1. Create Tenant Folder
+        function createTenant(e) {
+            e.preventDefault();
+            const tenantId = 't_' + Date.now();
+            const newTenant = {
+                id: tenantId,
+                name: newTenantName.value.trim(),
+                submeterNo: newSubmeterNo.value.trim(),
+                readings: [] 
+            };
+
+            tenants.push(newTenant);
+            saveData();
+            tenantForm.reset();
+            renderAll();
+        }
+
+        // Dropdown selection updates previous reading field automatically
+        function onTenantSelectionChange() {
+            const selectedId = billTenantId.value;
+            if (!selectedId) {
+                prevReadingInput.value = 0;
+                prevReadingInput.removeAttribute('readonly'); 
+                arrearsBalanceInput.value = "0.00";
+                return;
+            }
+
+            const tenant = tenants.find(t => t.id === selectedId);
+            if (tenant && tenant.readings.length > 0) {
+                const lastReading = tenant.readings[0].currReading; 
+                prevReadingInput.value = lastReading;
+                prevReadingInput.setAttribute('readonly', 'true');
+            } else {
+                prevReadingInput.value = 0;
+                prevReadingInput.removeAttribute('readonly');
+                prevReadingInput.classList.remove('bg-gray-100');
+            }
+            calculateKwh();
+        }
+
+        // Calc Logic (Revised Math Calculation according to specifications)
+        function calculateKwh() {
+            const prev = parseFloat(prevReadingInput.value) || 0;
+            const curr = parseFloat(currReadingInput.value) || 0;
+            const rate = parseFloat(ratePerKwhInput.value) || 0;
+            const transmission = parseFloat(transmissionFeeInput.value) || 0;
+            const arrears = parseFloat(arrearsBalanceInput.value) || 0;
+
+            const consumed = Math.max(0, curr - prev);
+            kwhConsumedInput.value = consumed.toFixed(2);
+            
+            // Rate Applied = Rate from Aleco + Transmission Fee
+            rawRateApplied = rate + transmission;
+            rateAppliedDisplay.value = formatPHP(rawRateApplied);
+
+            // Subtotal = Consumption x Rate Applied
+            rawSubtotal = consumed * rawRateApplied;
+            subtotalAmountInput.value = formatPHP(rawSubtotal);
+
+            rawTotalAmount = rawSubtotal + arrears;
+            totalAmountInput.value = formatPHP(rawTotalAmount);
+        }
+
+        // 2. Log New Reading into Tenant's History Folder
+        function saveBillEntry(e) {
+            e.preventDefault();
+            const tenantId = billTenantId.value;
+            if(!tenantId) return alert("Please select a valid Tenant folder!");
+
+            const tenantIndex = tenants.findIndex(t => t.id === tenantId);
+            if(tenantIndex === -1) return;
+
+            const newRecord = {
+                id: 'bill_' + Date.now(),
+                dateFrom: dateFromInput.value,
+                dateTo: dateToInput.value,
+                prevReading: parseFloat(prevReadingInput.value),
+                currReading: parseFloat(currReadingInput.value),
+                kwhConsumed: parseFloat(kwhConsumedInput.value),
+                ratePerKwh: parseFloat(ratePerKwhInput.value),
+                transmissionFee: parseFloat(transmissionFeeInput.value) || 0,
+                rateApplied: rawRateApplied,
+                arrearsBalance: parseFloat(arrearsBalanceInput.value) || 0,
+                subtotalAmount: rawSubtotal,
+                totalAmount: rawTotalAmount,
+                notes: billingNotesInput.value.trim(),
+                remarks: "", // Initialized empty Remarks
+                photo: currentPhotoBase64
+            };
+
+            tenants[tenantIndex].readings.unshift(newRecord);
+
+            saveData();
+            billingForm.reset();
+            currentPhotoBase64 = "";
+            photoPreviewContainer.classList.add('hidden');
+            photoPreview.src = "";
+            
+            // Set defaults back
+            ratePerKwhInput.value = "11.65"; 
+            transmissionFeeInput.value = "0.35";
+            arrearsBalanceInput.value = "0.00";
+            
+            renderAll();
+        }
+
+        // Update Tenant Info Directly inside Folders
+        function updateTenantMetadata(tenantId, key, val) {
+            const tenant = tenants.find(t => t.id === tenantId);
+            if (tenant) {
+                tenant[key] = val.trim();
+                saveData();
+                renderDropdown(); // Refresh active select option descriptions
+            }
+        }
+
+        // Update Remarks Directly inside Tables
+        function updateBillRemarks(tenantId, billId, val) {
+            const tenant = tenants.find(t => t.id === tenantId);
+            if (tenant) {
+                const bill = tenant.readings.find(b => b.id === billId);
+                if (bill) {
+                    bill.remarks = val.trim();
+                    saveData();
+                }
+            }
+        }
+
+        // Toggle Accordion / Folder View
+        function toggleFolder(id) {
+            const body = document.getElementById(`folder-body-${id}`);
+            const arrow = document.getElementById(`arrow-${id}`);
+            if (body.classList.contains('hidden')) {
+                body.classList.remove('hidden');
+                arrow.innerHTML = '▼';
+            } else {
+                body.classList.add('hidden');
+                arrow.innerHTML = '▶';
+            }
+        }
+
+        // Delete Whole Folder
+        function deleteTenantFolder(id) {
+            if(confirm("Are you sure you want to delete this Tenant Folder and ALL their historical records?")) {
+                tenants = tenants.filter(t => t.id !== id);
+                saveData();
+                renderAll();
+            }
+        }
+
+        // Delete individual reading record
+        function deleteReadingRecord(tenantId, billId) {
+            if(confirm("Delete this single reading record?")) {
+                const tenant = tenants.find(t => t.id === tenantId);
+                if(tenant) {
+                    tenant.readings = tenant.readings.filter(b => b.id !== billId);
+                    saveData();
+                    renderAll();
+                }
+            }
+        }
+
+        // Render Dropdown and Tenant Folder Lists
+        function renderAll() {
+            renderDropdown();
+            renderFolders();
+        }
+
+        function renderDropdown() {
+            const currentSelected = billTenantId.value;
+            billTenantId.innerHTML = '<option value="">-- Choose a Tenant Folder --</option>';
+            tenants.forEach(t => {
+                const opt = document.createElement('option');
+                opt.value = t.id;
+                opt.textContent = `${t.name} (Submeter: ${t.submeterNo})`;
+                billTenantId.appendChild(opt);
+            });
+            billTenantId.value = currentSelected;
+        }
+
+        function renderFolders() {
+            const container = document.getElementById('tenantFoldersContainer');
+            container.innerHTML = "";
+
+            if(tenants.length === 0) {
+                container.innerHTML = `
+                    <div class="bg-white p-8 rounded-xl border border-dashed border-gray-300 text-center text-gray-500">
+                        📁 No folders set up. Use the panel on the left to create a Tenant Folder.
+                    </div>`;
+                return;
+            }
+
+            tenants.forEach(tenant => {
+                const latestBilling = tenant.readings[0];
+                const folder = document.createElement('div');
+                folder.className = "bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden";
+                
+                folder.innerHTML = `
+                    <div class="p-4 bg-gray-50 flex justify-between items-center cursor-pointer select-none hover:bg-gray-100 transition" onclick="toggleFolder('${tenant.id}')">
+                        <div class="flex items-center space-x-3 w-full sm:w-auto">
+                            <span id="arrow-${tenant.id}" class="text-gray-500 text-xs">▶</span>
+                            <div class="flex flex-col sm:flex-row sm:items-center gap-2" onclick="event.stopPropagation()">
+                                <div class="flex items-center gap-1">
+                                    <span class="text-lg">📁</span>
+                                    <input type="text" value="${tenant.name}" 
+                                        onchange="updateTenantMetadata('${tenant.id}', 'name', this.value)" 
+                                        class="font-bold text-gray-800 text-base bg-transparent border-b border-transparent hover:border-gray-300 focus:border-indigo-600 focus:bg-white focus:ring-1 focus:ring-indigo-500 rounded px-1.5 py-0.5 outline-none transition w-48 sm:w-64"
+                                        title="Click to edit Tenant Name">
+                                </div>
+                                <div class="flex items-center gap-1">
+                                    <span class="text-[10px] text-gray-400 font-bold uppercase">Submeter:</span>
+                                    <input type="text" value="${tenant.submeterNo}" 
+                                        onchange="updateTenantMetadata('${tenant.id}', 'submeterNo', this.value)" 
+                                        class="text-xs text-indigo-600 font-semibold bg-indigo-50 border border-indigo-100 hover:border-indigo-300 focus:border-indigo-600 focus:bg-white focus:ring-1 focus:ring-indigo-500 px-2 py-0.5 rounded outline-none w-28"
+                                        title="Click to edit Submeter ID">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="flex items-center space-x-4" onclick="event.stopPropagation()">
+                            <div class="text-right">
+                                <p class="text-xs text-gray-400">Total Billed</p>
+                                <p class="font-extrabold text-sm text-green-600">${latestBilling ? formatPHP(latestBilling.totalAmount) : 'Php0.00'}</p>
+                            </div>
+                            <button onclick="deleteTenantFolder('${tenant.id}')" class="text-red-500 hover:bg-red-50 p-2 rounded-full transition text-sm" title="Delete Folder">🗑️</button>
+                        </div>
+                    </div>
+
+                    <div id="folder-body-${tenant.id}" class="hidden p-4 border-t border-gray-100 bg-white">
+                        <h4 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Running Billing Records</h4>
+                        
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-xs border-collapse">
+                                <thead>
+                                    <tr class="bg-gray-50 text-gray-500 border-b">
+                                        <th class="p-2">Period Cover</th>
+                                        <th class="p-2">Prev / Curr Reading</th>
+                                        <th class="p-2">Usage (kWh)</th>
+                                        <th class="p-2">Rate Applied</th>
+                                        <th class="p-2">Arrears</th>
+                                        <th class="p-2 font-semibold">Total Due</th>
+                                        <th class="p-2">Photo / Notes</th>
+                                        <th class="p-2">Remarks</th>
+                                        <th class="p-2 text-center">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${tenant.readings.length === 0 ? `
+                                        <tr><td colspan="9" class="text-center py-4 text-gray-400 italic">No billings logged for this folder yet.</td></tr>
+                                    ` : tenant.readings.map(b => `
+                                        <tr class="border-b hover:bg-gray-50 transition">
+                                            <td class="p-2 font-medium">${b.dateFrom} to ${b.dateTo}</td>
+                                            <td class="p-2">${b.prevReading} / ${b.currReading}</td>
+                                            <td class="p-2 font-bold text-gray-700">${b.kwhConsumed}</td>
+                                            <td class="p-2">${formatPHP(b.rateApplied || (b.ratePerKwh + b.transmissionFee))}</td>
+                                            <td class="p-2 text-red-500">${formatPHP(b.arrearsBalance || 0)}</td>
+                                            <td class="p-2 font-bold text-green-600">${formatPHP(b.totalAmount)}</td>
+                                            <td class="p-2">
+                                                <div class="space-y-1">
+                                                    ${b.photo ? `<button onclick="viewPhoto('${b.photo}')" class="text-indigo-600 hover:underline block text-[10px]">View Photo</button>` : ``}
+                                                    ${b.notes ? `<p class="text-[10px] text-gray-500 italic max-w-xs truncate" title="${b.notes}">Note: ${b.notes}</p>` : ``}
+                                                </div>
+                                            </td>
+                                            <td class="p-2" onclick="event.stopPropagation()">
+                                                <input type="text" value="${b.remarks || ''}" 
+                                                    onchange="updateBillRemarks('${tenant.id}', '${b.id}', this.value)" 
+                                                    placeholder="Add remarks..." 
+                                                    class="border border-gray-200 rounded px-2 py-1 text-xs w-full focus:ring-1 focus:ring-indigo-500 outline-none">
+                                            </td>
+                                            <td class="p-2 text-center flex justify-center items-center gap-1">
+                                                <button onclick="generateReceiptPDF('${tenant.id}', '${b.id}')" class="bg-indigo-100 hover:bg-indigo-200 text-indigo-700 px-2 py-0.5 rounded text-[10px] font-semibold">PDF Receipt</button>
+                                                <button onclick="generateReceiptExcel('${tenant.id}', '${b.id}')" class="bg-emerald-100 hover:bg-emerald-200 text-emerald-700 px-2 py-0.5 rounded text-[10px] font-semibold">Excel</button>
+                                                <button onclick="printBluetoothReceipt('${tenant.id}', '${b.id}')" class="bg-teal-100 hover:bg-teal-200 text-teal-700 px-2 py-0.5 rounded text-[10px] font-semibold">Print</button>
+                                                <button onclick="deleteReadingRecord('${tenant.id}', '${b.id}')" class="text-red-500 hover:bg-red-50 px-1.5 py-0.5 rounded">✕</button>
+                                            </td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(folder);
+            });
+        }
+
+        // View Photo in modal/tab popup
+        function viewPhoto(dataUri) {
+            const imgWindow = window.open();
+            imgWindow.document.write(`<img src="${dataUri}" style="max-width:100%; height:auto; display:block; margin:20px auto; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); border-radius: 8px;" />`);
+        }
+
+        // PDF generator (Revised to match design of provided image perfectly)
+        function generateReceiptPDF(tenantId, billId) {
+            const { jsPDF } = window.jspdf;
+            const tenant = tenants.find(t => t.id === tenantId);
+            if (!tenant) return;
+            const bill = tenant.readings.find(b => b.id === billId);
+            if (!bill) return;
+
+            // Initialize clean A4 or Letter styled layout (using Standard Letter layout)
+            const doc = new jsPDF({ unit: "mm", format: "letter" });
+            
+            // Margins & Position metrics
+            const leftColX = 20;
+            const midColX = 110;
+            const rightColX = 195; // Aligned right boundary
+            
+            let y = 30;
+
+            // Typography configurations
+            doc.setFont("Helvetica", "bold");
+            doc.setFontSize(16);
+            doc.text("ELECTRICITY STATEMENT", leftColX, y);
+            y += 8;
+            
+            doc.setFont("Helvetica", "normal");
+            doc.setFontSize(12);
+            doc.text(`Tenant: ${tenant.name}`, leftColX, y);
+            y += 6;
+            doc.text(`Submeter ID: ${tenant.submeterNo}`, leftColX, y);
+            y += 6;
+            doc.text(`Period: ${bill.dateFrom} to ${bill.dateTo}`, leftColX, y);
+            y += 4;
+            
+            // Clean division line matching the image draft
+            doc.setLineWidth(0.4);
+            doc.line(leftColX, y, rightColX, y);
+            y += 12;
+
+            // Row 1: Current Reading & Rate from Aleco
+            doc.setFont("Helvetica", "normal");
+            doc.text("Current Reading:", leftColX, y);
+            doc.text(`${bill.currReading} kWh`, leftColX + 58, y);
+            
+            doc.text("Rate from Aleco:", midColX, y);
+            doc.text(formatPHP(bill.ratePerKwh), rightColX, y, { align: "right" });
+            y += 7;
+
+            // Row 2: Previous Reading & Transmission Fee
+            doc.text("Previous Reading:", leftColX, y);
+            doc.text(`${bill.prevReading} kWh`, leftColX + 58, y);
+            
+            doc.text("Transmission Fee:", midColX, y);
+            doc.text(formatPHP(bill.transmissionFee || 0), rightColX, y, { align: "right" });
+            y += 7;
+
+            // Row 3: Total Consumption & Rate Applied (BOLD)
+            doc.setFont("Helvetica", "bold");
+            doc.text("Total Consumption:", leftColX, y);
+            doc.text(`${bill.kwhConsumed} kWh`, leftColX + 58, y);
+            
+            doc.text("Rate Applied:", midColX, y);
+            const appliedRate = bill.rateApplied || (bill.ratePerKwh + bill.transmissionFee);
+            doc.text(formatPHP(appliedRate), rightColX, y, { align: "right" });
+            y += 2;
+
+            // Underline for values block
+            doc.setLineWidth(0.4);
+            doc.line(leftColX, y, rightColX, y);
+            y += 12;
+
+            // Math Summary Rows
+            doc.setFont("Helvetica", "normal");
+            doc.text("Total:", leftColX, y);
+            doc.text(formatPHP(bill.subtotalAmount), rightColX, y, { align: "right" });
+            y += 7;
+
+            doc.text("Balance from Previous Bill:", leftColX, y);
+            doc.text(formatPHP(bill.arrearsBalance || 0), rightColX, y, { align: "right" });
+            y += 2;
+
+            // Horizontal line above Total Due
+            doc.line(leftColX, y, rightColX, y);
+            y += 8;
+
+            // Total Amount Due Row (Bold and slightly bigger)
+            doc.setFont("Helvetica", "bold");
+            doc.setFontSize(13);
+            doc.text("Total Amount Due:", leftColX, y);
+            doc.text(formatPHP(bill.totalAmount), rightColX, y, { align: "right" });
+            y += 15;
+
+            // Remarks Section
+            doc.setFont("Helvetica", "bold");
+            doc.setFontSize(11);
+            doc.text("Remarks:", leftColX, y);
+            y += 6;
+            doc.setFont("Helvetica", "normal");
+            if (bill.remarks) {
+                doc.text(bill.remarks, leftColX, y);
+                y += 12;
+            } else {
+                y += 8;
+            }
+
+            // Notes Section
+            doc.setFont("Helvetica", "bold");
+            doc.setFontSize(11);
+            doc.text("Notes (if any):", leftColX, y);
+            y += 6;
+            
+            doc.setFont("Helvetica", "normal");
+            if (bill.notes) {
+                doc.text(bill.notes, leftColX, y);
+                y += 15;
+            } else {
+                y += 10;
+            }
+
+            // Photo Attachment (if exists, renders below structured notes nicely)
+            if (bill.photo) {
+                try {
+                    doc.addImage(bill.photo, 'JPEG', leftColX, y, 90, 50);
+                    doc.setFont("Helvetica", "italic");
+                    doc.setFontSize(9);
+                    doc.text("Submeter Screenshot Proof", leftColX, y + 55);
+                } catch (e) {
+                    console.log("Photo render bypass:", e);
+                }
+            }
+
+            doc.save(`Bill_${tenant.name.replace(/\s+/g, '_')}_${bill.dateTo}.pdf`);
+        }
+
+        // GENERATE SINGLE RECEIPT AS EXCEL WITH FORMULAS & RETAINED LAYOUT
+        function generateReceiptExcel(tenantId, billId) {
+            const tenant = tenants.find(t => t.id === tenantId);
+            if (!tenant) return;
+            const bill = tenant.readings.find(b => b.id === billId);
+            if (!bill) return;
+
+            const wb = XLSX.utils.book_new();
+
+            // Set up cell values and formulas to match the exact mathematical layout
+            const data = [
+                ["ELECTRICITY STATEMENT", "", "", ""],
+                ["", "", "", ""],
+                ["Tenant:", tenant.name, "", ""],
+                ["Submeter ID:", tenant.submeterNo, "", ""],
+                ["Period:", `${bill.dateFrom} to ${bill.dateTo}`, "", ""],
+                ["", "", "", ""],
+                ["", "", "", ""],
+                ["Current Reading (kWh)", bill.currReading, "Rate from Aleco (Php)", bill.ratePerKwh],
+                ["Previous Reading (kWh)", bill.prevReading, "Transmission Fee (Php)", bill.transmissionFee || 0],
+                ["Total Consumption (kWh)", { f: "B8-B9" }, "Rate Applied (Php)", { f: "D8+D9" }],
+                ["", "", "", ""],
+                ["", "", "", ""],
+                ["", "", "", ""],
+                ["Subtotal", "", "", { f: "B10*D10" }],
+                ["Balance from Previous Bill", "", "", bill.arrearsBalance || 0],
+                ["Total Amount Due", "", "", { f: "D14+D15" }],
+                ["", "", "", ""],
+                ["Remarks:", bill.remarks || "", "", ""],
+                ["Notes:", bill.notes || "", "", ""]
+            ];
+
+            const ws = XLSX.utils.aoa_to_sheet(data);
+
+            // Merge cells to match the reference layout (title + tenant info block)
+            ws['!merges'] = [
+                { s: { r: 0, c: 0 }, e: { r: 0, c: 1 } }, // A1:B1 - ELECTRICITY STATEMENT
+                { s: { r: 2, c: 1 }, e: { r: 2, c: 2 } }, // B3:C3 - Tenant name
+                { s: { r: 3, c: 1 }, e: { r: 3, c: 2 } }, // B4:C4 - Submeter ID
+                { s: { r: 4, c: 1 }, e: { r: 4, c: 2 } }  // B5:C5 - Period
+            ];
+
+            // Column width formatting to match reference file
+            ws['!cols'] = [
+                { wch: 29.66 },
+                { wch: 10.08 },
+                { wch: 29.66 },
+                { wch: 13.91 }
+            ];
+
+            XLSX.utils.book_append_sheet(wb, ws, "Statement");
+            XLSX.writeFile(wb, `Receipt_${tenant.name.replace(/\s+/g, '_')}_${bill.dateTo}.xlsx`);
+        }
+
+        // GENERATE SYSTEM-WIDE MULTI-SHEET GENERAL LEDGER EXCEL WITH FORMULAS
+        function generateGeneralRecordsExcel() {
+            if (tenants.length === 0) {
+                alert("No tenant records found to generate Excel database!");
+                return;
+            }
+
+            const wb = XLSX.utils.book_new();
+
+            tenants.forEach(tenant => {
+                const data = [
+                    [`SYSTEM LEDGER: ${tenant.name}`, "", "", "", "", "", "", "", "", "", "", "", ""],
+                    [`Submeter ID: ${tenant.submeterNo}`, "", "", "", "", "", "", "", "", "", "", "", ""],
+                    [],
+                    [
+                        "Period From", "Period To", "Current Reading (kWh)", "Previous Reading (kWh)", 
+                        "Consumption (kWh)", "Rate from Aleco (Php)", "Transmission Fee (Php)", 
+                        "Rate Applied (Php)", "Arrears / Prev Balance", "Subtotal (Php)", 
+                        "Total Due (Php)", "Remarks", "Notes"
+                    ]
+                ];
+
+                tenant.readings.forEach((b, idx) => {
+                    const r = 5 + idx; // starting row index offset (row 5 in spreadsheet context)
+                    data.push([
+                        b.dateFrom,
+                        b.dateTo,
+                        b.currReading,
+                        b.prevReading,
+                        { f: `C${r}-D${r}` }, // Consumption Formula
+                        b.ratePerKwh,
+                        b.transmissionFee || 0,
+                        { f: `F${r}+G${r}` }, // Rate Applied Formula
+                        b.arrearsBalance || 0,
+                        { f: `E${r}*H${r}` }, // Subtotal Formula
+                        { f: `J${r}+I${r}` }, // Total Due Formula
+                        b.remarks || "",
+                        b.notes || ""
+                    ]);
+                });
+
+                const ws = XLSX.utils.aoa_to_sheet(data);
+
+                // Safe sheet name (maximum 31 characters, removes disallowed characters)
+                const safeSheetName = tenant.name.replace(/[\[\]\*\?\/\\:]/g, "").substring(0, 31);
+                XLSX.utils.book_append_sheet(wb, ws, safeSheetName || `Tenant_${tenant.id}`);
+            });
+
+            XLSX.writeFile(wb, `General_Submeter_Ledger_${new Date().toISOString().slice(0,10)}.xlsx`);
+        }
+
+        // GENERATE GENERAL SYSTEM RECORDS SEQUENCE
+        function generateGeneralRecordsPDF() {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF({ unit: "mm", format: "a4" });
+            
+            doc.setFont("Helvetica", "bold");
+            doc.setFontSize(16);
+            doc.text("GENERAL SUBMETER SYSTEM LEDGER RECORDS", 15, 20);
+            doc.setFontSize(10);
+            doc.setFont("Helvetica", "normal");
+            doc.text(`Generated On: ${new Date().toLocaleDateString()}`, 15, 26);
+            doc.line(15, 28, 195, 28);
+
+            let y = 35;
+
+            tenants.forEach((tenant, idx) => {
+                if (y > 240) { 
+                    doc.addPage(); 
+                    y = 20; 
+                }
+
+                doc.setFont("Helvetica", "bold");
+                doc.setFontSize(12);
+                doc.text(`${idx + 1}. ${tenant.name}`, 15, y);
+                y += 5;
+                doc.setFont("Helvetica", "normal");
+                doc.setFontSize(9);
+                doc.text(`Submeter ID: ${tenant.submeterNo}`, 15, y);
+                y += 5;
+
+                doc.setFont("Helvetica", "bold");
+                doc.text("Period Cover", 16, y);
+                doc.text("Curr / Prev (kWh)", 55, y);
+                doc.text("Cons.", 90, y);
+                doc.text("Rate Applied", 110, y);
+                doc.text("Arrears", 145, y);
+                doc.text("Total Due", 170, y);
+                y += 2;
+                doc.line(15, y, 195, y);
+                y += 4;
+
+                doc.setFont("Helvetica", "normal");
+                if (tenant.readings.length === 0) {
+                    doc.text("No readings logged in folder.", 18, y);
+                    y += 6;
+                } else {
+                    tenant.readings.forEach(b => {
+                        if (y > 260) { 
+                            doc.addPage(); 
+                            y = 20; 
+                        }
+                        doc.text(`${b.dateFrom} to ${b.dateTo}`, 16, y);
+                        doc.text(`${b.currReading} / ${b.prevReading}`, 55, y);
+                        doc.text(`${b.kwhConsumed}`, 90, y);
+                        
+                        const applied = b.rateApplied || (b.ratePerKwh + b.transmissionFee);
+                        doc.text(formatPHP(applied), 110, y);
+                        doc.text(formatPHP(b.arrearsBalance || 0), 145, y);
+                        doc.setFont("Helvetica", "bold");
+                        doc.text(formatPHP(b.totalAmount), 170, y);
+                        doc.setFont("Helvetica", "normal");
+                        
+                        let offset = 0;
+                        if (b.remarks) {
+                            y += 4;
+                            doc.setFont("Helvetica", "italic");
+                            doc.setFontSize(8);
+                            doc.text(`Remarks: ${b.remarks}`, 18, y);
+                            offset = 4;
+                        }
+                        if (b.notes) {
+                            y += (offset === 0 ? 4 : 3);
+                            doc.setFont("Helvetica", "italic");
+                            doc.setFontSize(8);
+                            doc.text(`Notes: ${b.notes}`, 18, y);
+                        }
+                        doc.setFont("Helvetica", "normal");
+                        doc.setFontSize(9);
+                        y += 6;
+                    });
+                }
+                
+                y += 4; 
+                doc.line(15, y, 195, y);
+                y += 8;
+            });
+
+            doc.save(`General_Ledger_Report_${new Date().toISOString().slice(0,10)}.pdf`);
+        }
+
+        // Bluetooth Thermal Printing
+        function printBluetoothReceipt(tenantId, billId) {
+            const tenant = tenants.find(t => t.id === tenantId);
+            if (!tenant) return;
+            const bill = tenant.readings.find(b => b.id === billId);
+            if (!bill) return;
+
+            const appliedRate = bill.rateApplied || (bill.ratePerKwh + bill.transmissionFee);
+
+            let receiptText = 
+                "      BILL STATEMENT      \n" +
+                "==========================\n" +
+                `Tenant: ${tenant.name}\n` +
+                `Submeter ID: ${tenant.submeterNo}\n` +
+                `From: ${bill.dateFrom}\n` +
+                `To:   ${bill.dateTo}\n` +
+                "==========================\n" +
+                `Current Reading: ${bill.currReading} kWh\n` +
+                `Previous Reading: ${bill.prevReading} kWh\n` +
+                `Total Consumption: ${bill.kwhConsumed} kWh\n` +
+                `Rate from Aleco: ${formatPHP(bill.ratePerKwh)}\n` +
+                `Transmission Fee: ${formatPHP(bill.transmissionFee || 0)}\n` +
+                `Rate Applied: ${formatPHP(appliedRate)}\n` +
+                `Total: ${formatPHP(bill.subtotalAmount)}\n` +
+                `Prev. Bill Balance: ${formatPHP(bill.arrearsBalance || 0)}\n` +
+                "--------------------------\n" +
+                `TOTAL AMOUNT DUE: ${formatPHP(bill.totalAmount)}\n` +
+                "==========================\n" +
+                (bill.remarks ? `Remarks: ${bill.remarks}\n` : "") +
+                (bill.notes ? `Notes: ${bill.notes}\n==========================\n` : "") +
+                "       Thank you!         \n\n\n";
+
+            if (navigator.bluetooth) {
+                alert("Pairing request initializing... Turn on your 58mm POS thermal printer!");
+                navigator.bluetooth.requestDevice({
+                    filters: [{ services: ['000018f0-0000-1000-8000-00805f9b34fb'] }]
+                })
+                .then(device => device.gatt.connect())
+                .then(server => server.getPrimaryService('000018f0-0000-1000-8000-00805f9b34fb'))
+                .then(service => service.getCharacteristic('00002af1-0000-1000-8000-00805f9b34fb'))
+                .then(characteristic => {
+                    let encoder = new TextEncoder();
+                    let data = encoder.encode(receiptText);
+                    return characteristic.writeValue(data);
+                })
+                .then(() => alert("Printing request sent!"))
+                .catch(err => {
+                    console.log("Direct print error:", err);
+                    fallbackSystemPrint(receiptText);
+                });
+            } else {
+                fallbackSystemPrint(receiptText);
+            }
+        }
+
+        function fallbackSystemPrint(text) {
+            const printWindow = window.open('', '_blank', 'width=300,height=400');
+            printWindow.document.write(`
+                <html>
+                <head>
+                    <title>Thermal Receipt</title>
+                    <style>
+                        body { font-family: 'Courier New', Courier, monospace; font-size: 13px; padding: 10px; width: 280px; }
+                        pre { white-space: pre-wrap; word-wrap: break-word; }
+                    </style>
+                </head>
+                <body>
+                    <pre>${text}</pre>
+                    <script>
+                        window.onload = function() { window.print(); window.close(); }
+                    <\/script>
+                </body>
+                </html>
+            `);
+            printWindow.document.close();
+        }
+
+        // Export System Schema
+        function exportBackup() {
+            const blob = new Blob([JSON.stringify(tenants, null, 2)], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `ledger_backup_${new Date().toISOString().slice(0,10)}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // Import Backup - Fortified with structure sanitization, object defaults, and file-reset 
+        function importBackup(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const parsed = JSON.parse(e.target.result);
+                    // Accept a raw array (standard export) or an object wrapping the array,
+                    // in case the backup came from a slightly different export shape
+                    const importedTenants = Array.isArray(parsed) ? parsed
+                        : (parsed && Array.isArray(parsed.tenants)) ? parsed.tenants
+                        : null;
+
+                    if (importedTenants) {
+                        // Sanitize old data configurations: guarantee readings and remarks are structurally prepared
+                        importedTenants.forEach(t => {
+                            if (t.readings && Array.isArray(t.readings)) {
+                                t.readings.forEach(r => {
+                                    if (r.remarks === undefined) {
+                                        r.remarks = "";
+                                    }
+                                });
+                            }
+                        });
+                        tenants = importedTenants;
+                        // Lock out the initial DB load: if it was still pending when this import
+                        // finished, it would otherwise overwrite this data right after we set it
+                        dbInitialLoadDone = true;
+                        saveData();
+                        renderAll();
+                        alert("Database restored successfully!");
+                    } else {
+                        alert("Invalid backup file structure: expected a JSON array of tenant folders (root format was " + (parsed === null ? "null" : Array.isArray(parsed) ? "array" : typeof parsed) + ").");
+                    }
+                } catch (err) {
+                    alert("Parsing file error: " + err.message);
+                }
+                // Reset file target value to ensure re-uploads can trigger 'change' events
+                event.target.value = "";
+            };
+            reader.readAsText(file);
+        }
+
+        // Wipe Database Records
+        function wipeData() {
+            if (confirm("🚨 DANGER ZONE: This permanently wipes ALL folders, readings history, and meter photographs. Confirm wipe?")) {
+                localStorage.removeItem('tenantLedger');
+                if (db) {
+                    const transaction = db.transaction(["tenantsStore"], "readwrite");
+                    const store = transaction.objectStore("tenantsStore");
+                    const deleteReq = store.delete("ledgerData");
+                    deleteReq.onsuccess = function() {
+                        tenants = [];
+                        billingForm.reset();
+                        tenantForm.reset();
+                        renderAll();
+                        alert("Database purged.");
+                    }
+                } else {
+                    tenants = [];
+                    billingForm.reset();
+                    tenantForm.reset();
+                    renderAll();
+                    alert("Database purged.");
+                }
+            }
+        }
+    </script>
+</body>
+</html>
